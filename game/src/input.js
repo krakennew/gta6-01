@@ -1,98 +1,60 @@
-// Keyboard and pointer input. Held keys give movement and driving; one-shot presses (enter a
-// car, punch, pause, mute, confirm) are queued as bit flags and taken once by the loop, so a
-// press between two frames is never lost and never counted twice. The mouse aims the pistol on
-// foot; holding the mouse button fires it.
+// Solmar Keys — keyboard and mouse input.
+//
+// One object owns the key state. The game reads it every frame; menus read the
+// "pressed" edge (a key that went down since the last frame) so a held key does
+// not repeat a menu action.
 
-export const ACTION_ENTER = 1;
-export const ACTION_PAUSE = 2;
-export const ACTION_MUTE = 4;
-export const ACTION_PUNCH = 8;
-export const ACTION_CONFIRM = 16;
+export class Input {
+  constructor() {
+    this.down = new Set();
+    this.pressed = new Set();
+    this.mouse = { x: 0, y: 0, clicked: false };
+    this._onKeyDown = (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+      if (!e.repeat) this.pressed.add(e.key.toLowerCase());
+      this.down.add(e.key.toLowerCase());
+    };
+    this._onKeyUp = (e) => this.down.delete(e.key.toLowerCase());
+    this._onMouse = (e) => {
+      this.mouse.x = e.clientX;
+      this.mouse.y = e.clientY;
+      this.mouse.clicked = true;
+    };
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
+    window.addEventListener('mousedown', this._onMouse);
+  }
 
-const UP = new Set(['ArrowUp', 'KeyW']);
-const DOWN = new Set(['ArrowDown', 'KeyS']);
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const RUN = new Set(['ShiftLeft', 'ShiftRight']);
-const ENTER = new Set(['KeyE']);
-const PUNCH = new Set(['Space']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-const MUTE = new Set(['KeyM']);
-const CONFIRM = new Set(['Enter']);
+  isDown(key) {
+    return this.down.has(key.toLowerCase());
+  }
 
-export function createInput(canvas) {
-  let up = false;
-  let down = false;
-  let left = false;
-  let right = false;
-  let run = false;
-  let mouseDown = false;
-  let mouseX = 0;
-  let mouseY = 0;
-  let actions = 0;
+  // True once, on the frame the key went down. Cleared by endFrame().
+  wasPressed(key) {
+    return this.pressed.has(key.toLowerCase());
+  }
 
-  window.addEventListener('keydown', (event) => {
-    if (UP.has(event.code)) up = true;
-    else if (DOWN.has(event.code)) down = true;
-    else if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (RUN.has(event.code)) run = true;
-    else if (ENTER.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_ENTER;
-    } else if (PUNCH.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PUNCH;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else if (MUTE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_MUTE;
-    } else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else return;
-    event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => {
-    if (UP.has(event.code)) up = false;
-    else if (DOWN.has(event.code)) down = false;
-    else if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-    else if (RUN.has(event.code)) run = false;
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    up = false;
-    down = false;
-    left = false;
-    right = false;
-    run = false;
-    mouseDown = false;
-  });
-  canvas.addEventListener('pointermove', (event) => {
-    mouseX = event.clientX;
-    mouseY = event.clientY;
-  });
-  canvas.addEventListener('pointerdown', (event) => {
-    mouseX = event.clientX;
-    mouseY = event.clientY;
-    mouseDown = true;
-    actions |= ACTION_CONFIRM;
-  });
-  canvas.addEventListener('pointerup', () => {
-    mouseDown = false;
-  });
+  // WASD or arrows, as a normalized {x, y} vector (y down is positive).
+  moveVector() {
+    let x = 0;
+    let y = 0;
+    if (this.isDown('a') || this.isDown('arrowleft')) x -= 1;
+    if (this.isDown('d') || this.isDown('arrowright')) x += 1;
+    if (this.isDown('w') || this.isDown('arrowup')) y -= 1;
+    if (this.isDown('s') || this.isDown('arrowdown')) y += 1;
+    if (x !== 0 && y !== 0) {
+      const inv = 1 / Math.hypot(x, y);
+      x *= inv;
+      y *= inv;
+    }
+    return { x, y };
+  }
 
-  return {
-    up: () => up,
-    down: () => down,
-    left: () => left,
-    right: () => right,
-    run: () => run,
-    mouseDown: () => mouseDown,
-    mouse: () => ({ x: mouseX, y: mouseY }),
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-  };
+  // Call at the end of every frame.
+  endFrame() {
+    this.pressed.clear();
+    this.mouse.clicked = false;
+  }
 }
